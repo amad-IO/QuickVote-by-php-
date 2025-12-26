@@ -1,0 +1,546 @@
+import React, { useEffect, useState } from 'react';
+import AlertModal from '../modals/AlertModal';
+import SuccessVoteModal from '../modals/SuccessVoteModal';
+import { useParams } from 'react-router-dom';
+import { getCandidates, vote } from '../../services/api';
+import { Vote, Mail, AlertCircle, CheckCircle, MessageCircle, Upload, ArrowRight, Target, Lightbulb, Rocket, X, Shield } from 'lucide-react';
+
+interface Candidate {
+    id: string;
+    name: string;
+    description: string;
+    photo?: string;
+}
+
+interface Poll {
+    id: string;
+    title: string;
+    candidates: Candidate[];
+    isActive: boolean;
+    votes: Record<string, number>;
+}
+
+const VotingPage: React.FC = () => {
+    const { id: pollId }: { id?: string } = useParams();
+    if (!pollId) {
+        console.error("pollId tidak ditemukan");
+        return null; // Atau tambahkan logika fallback
+    }
+
+    const [poll, setPoll] = useState<Poll | null>(null);
+    const [email, setEmail] = useState('');
+    const [selectedCandidate, setSelectedCandidate] = useState('');
+    const [showConfirmModal, setShowConfirmModal] = useState(false);
+    const [showSuccessModal, setShowSuccessModal] = useState(false);
+    const [showAlert, setShowAlert] = useState(false);
+    const [voted, setVoted] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [candidates, setCandidates] = useState([]);
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+        loadPoll();
+        // Set up polling for real-time updates
+        const interval = setInterval(loadPoll, 2000);
+        return () => clearInterval(interval);
+    }, [pollId]);
+
+    useEffect(() => {
+        const fetchCandidates = async () => {
+            setLoading(true);
+            try {
+                const data = await getCandidates();
+                setCandidates(data);
+            } catch (err: any) {
+                setError(err);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchCandidates();
+    }, []);
+
+    const loadPoll = () => {
+        const polls = JSON.parse(localStorage.getItem('polls') || '[]');
+        const foundPoll = polls.find((p: Poll) => p.id === pollId);
+
+        if (foundPoll) {
+            setPoll(foundPoll);
+        }
+        setLoading(false);
+    };
+
+    const handleSelectCandidate = (candidateId: string) => {
+        setSelectedCandidate(candidateId);
+        setShowConfirmModal(true);
+        setEmail('');
+    };
+
+    const handleVote = async (e: React.FormEvent) => {
+        e.preventDefault();
+
+        if (!email || !selectedCandidate || !poll) return;
+
+        // Check if email already voted
+        const votedEmails = JSON.parse(localStorage.getItem(`voted_${pollId}`) || '[]');
+
+        if (votedEmails.includes(email)) {
+            setShowConfirmModal(false);
+            setShowAlert(true);
+            return;
+        }
+
+        try {
+            console.log('🗳️ Processing vote...');
+            console.log('Email:', email);
+            console.log('Candidate ID:', selectedCandidate);
+            console.log('Poll ID:', pollId);
+
+            // Save vote to localStorage (no backend API needed)
+            const polls = JSON.parse(localStorage.getItem('polls') || '[]');
+            const pollIndex = polls.findIndex((p: Poll) => p.id === pollId);
+
+            if (pollIndex === -1) {
+                throw new Error('Voting tidak ditemukan');
+            }
+
+            // Initialize votes object if not exists
+            if (!polls[pollIndex].votes) {
+                polls[pollIndex].votes = {};
+            }
+
+            // Increment vote count
+            polls[pollIndex].votes[selectedCandidate] =
+                (polls[pollIndex].votes[selectedCandidate] || 0) + 1;
+
+            localStorage.setItem('polls', JSON.stringify(polls));
+
+            // Mark email as voted
+            votedEmails.push(email);
+            localStorage.setItem(`voted_${pollId}`, JSON.stringify(votedEmails));
+
+            console.log('✅ Vote saved successfully');
+
+            setVoted(true);
+            setShowConfirmModal(false);
+            setShowSuccessModal(true);
+            loadPoll();
+
+        } catch (error: any) {
+            console.error('❌ Error in handleVote:', error);
+
+            // Proper error message handling
+            let errorMessage = 'Terjadi kesalahan saat memproses suara Anda';
+
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === 'string') {
+                errorMessage = error;
+            } else if (error?.message) {
+                errorMessage = error.message;
+            }
+
+            alert(errorMessage);
+            setShowConfirmModal(false);
+        }
+    };
+
+    const getTotalVotes = () => {
+        if (!poll || !poll.votes) return 0;
+        return Object.values(poll.votes).reduce((sum, count) => sum + count, 0);
+    };
+
+    const getVotePercentage = (candidateId: string) => {
+        const total = getTotalVotes();
+        if (total === 0) return 0;
+        return Math.round(((poll?.votes[candidateId] || 0) / total) * 100);
+    };
+
+    const getSelectedCandidateData = () => {
+        return poll?.candidates.find(c => c.id === selectedCandidate);
+    };
+
+    if (loading) {
+        return (
+            <div className="min-h-screen bg-gradient-to-b from-[#1a1d35] to-[#0f1123] flex items-center justify-center">
+                <div className="text-white">Memuat...</div>
+            </div>
+        );
+    }
+
+    if (!poll) {
+        return (
+            <div className="min-h-screen bg-gradient-to-b from-[#1a1d35] to-[#0f1123] flex items-center justify-center px-6">
+                <div className="text-center">
+                    <AlertCircle className="w-16 h-16 text-red-400 mx-auto mb-4" />
+                    <h1 className="text-3xl text-white mb-2">Voting Tidak Ditemukan</h1>
+                    <p className="text-gray-400">Link voting tidak valid atau sudah dihapus</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (!poll.isActive) {
+        return (
+            <div className="min-h-screen bg-gradient-to-b from-[#1a1d35] to-[#0f1123] flex items-center justify-center px-6">
+                <div className="text-center">
+                    <AlertCircle className="w-16 h-16 text-yellow-400 mx-auto mb-4" />
+                    <h1 className="text-3xl text-white mb-2">Voting Belum Aktif</h1>
+                    <p className="text-gray-400">Voting ini belum dimulai oleh administrator</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (voted) {
+        return (
+            <div className="min-h-screen bg-gradient-to-b from-[#1a1d35] to-[#0f1123] text-white">
+                {/* Header */}
+                <header className="border-b border-gray-800">
+                    <div className="container mx-auto px-6 py-4">
+                        <div className="flex items-center gap-2">
+                            <Vote className="w-6 h-6 text-indigo-500" />
+                            <span className="text-xl">QuickVote</span>
+                        </div>
+                    </div>
+                </header>
+
+                <div className="container mx-auto px-6 py-12">
+                    <div className="max-w-4xl mx-auto">
+                        {/* Success Message */}
+                        <div className="bg-[#1f2342] border border-green-900/30 rounded-2xl p-12 text-center mb-8">
+                            <div className="w-20 h-20 bg-green-600/20 rounded-full flex items-center justify-center mx-auto mb-6">
+                                <CheckCircle className="w-10 h-10 text-green-400" />
+                            </div>
+                            <h1 className="text-4xl mb-4">Terima Kasih!</h1>
+                            <p className="text-xl text-gray-400">
+                                Suara Anda telah berhasil dicatat
+                            </p>
+                        </div>
+
+                        {/* Real-time Results */}
+                        <div className="bg-[#1f2342] border border-indigo-900/30 rounded-2xl p-8">
+                            <div className="flex justify-between items-center mb-6">
+                                <h2 className="text-2xl">{poll.title}</h2>
+                                <div className="text-gray-400">
+                                    <span className="text-indigo-400">{getTotalVotes()}</span> suara
+                                </div>
+                            </div>
+
+                            <div className="space-y-4">
+                                {poll.candidates.map((candidate) => {
+                                    const votes = poll.votes[candidate.id] || 0;
+                                    const percentage = getVotePercentage(candidate.id);
+
+                                    return (
+                                        <div key={candidate.id} className="bg-[#0f1123] rounded-xl p-6">
+                                            <div className="flex items-center gap-4 mb-3">
+                                                {candidate.photo ? (
+                                                    <img
+                                                        src={candidate.photo}
+                                                        alt={candidate.name}
+                                                        className="w-16 h-16 object-cover rounded-lg flex-shrink-0"
+                                                    />
+                                                ) : (
+                                                    <div className="w-16 h-16 bg-gray-800 rounded-lg flex-shrink-0 flex items-center justify-center">
+                                                        <Upload className="w-6 h-6 text-gray-600" />
+                                                    </div>
+                                                )}
+                                                <div className="flex-1">
+                                                    <div className="text-lg mb-1">{candidate.name}</div>
+                                                    {candidate.description && (
+                                                        <div className="text-sm text-gray-400">{candidate.description}</div>
+                                                    )}
+                                                </div>
+                                                <div className="text-right">
+                                                    <div className="text-2xl text-indigo-400">{percentage}%</div>
+                                                    <div className="text-sm text-gray-400">{votes} suara</div>
+                                                </div>
+                                            </div>
+                                            <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
+                                                <div
+                                                    className="bg-gradient-to-r from-indigo-500 to-indigo-600 h-full transition-all duration-500"
+                                                    style={{ width: `${percentage}%` }}
+                                                ></div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            <div className="mt-6 text-center text-gray-400 text-sm flex items-center justify-center gap-2">
+                                <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                                Hasil diperbarui secara real-time
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="min-h-screen bg-gradient-to-b from-[#1a1d35] to-[#0f1123] text-white">
+            {/* Header */}
+            <header className="border-b border-gray-800">
+                <div className="container mx-auto px-6 py-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <Vote className="w-6 h-6 text-indigo-500" />
+                            <span className="text-xl">QuickVote</span>
+                        </div>
+                        <div className="flex items-center gap-2 bg-green-600/20 px-3 py-1.5 rounded-full">
+                            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                            <span className="text-sm text-green-400">LIVE</span>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <div className="container mx-auto px-6 py-12">
+                <div className="max-w-7xl mx-auto">
+                    {/* Poll Info */}
+                    <div className="mb-8">
+                        <div className="text-sm text-indigo-400 mb-3 uppercase tracking-wide">📊 CAMPUS ELECTION</div>
+                        <h1 className="text-5xl mb-4">{poll.title}</h1>
+                        <p className="text-gray-400 max-w-2xl">
+                            Please select one candidate from the list below. Your vote is anonymous, encrypted, and secure. Voting closes when the timer reaches zero.
+                        </p>
+                    </div>
+
+                    {/* Candidates Grid */}
+                    {!voted ? (
+                        <div className="grid grid-cols-3 gap-6 mb-8">
+                            {poll.candidates.map((candidate, index) => {
+                                const bgColors = ['bg-gray-600', 'bg-orange-400', 'bg-gray-700'];
+                                const bgColor = bgColors[index % bgColors.length];
+
+                                return (
+                                    <div
+                                        key={candidate.id}
+                                        className={`bg-[#1f2342] border-2 rounded-2xl overflow-hidden transition ${selectedCandidate === candidate.id
+                                            ? 'border-indigo-500 shadow-lg shadow-indigo-500/20'
+                                            : 'border-gray-800 hover:border-gray-700'
+                                            }`}
+                                    >
+                                        {/* Photo */}
+                                        <div className={`relative ${bgColor} h-80`}>
+                                            {candidate.photo ? (
+                                                <img
+                                                    src={candidate.photo}
+                                                    alt={candidate.name}
+                                                    className="w-full h-full object-cover"
+                                                />
+                                            ) : (
+                                                <div className="w-full h-full flex items-center justify-center">
+                                                    <Upload className="w-16 h-16 text-white/30" />
+                                                </div>
+                                            )}
+                                            <div className="absolute top-4 right-4 bg-black/70 backdrop-blur-sm px-3 py-1 rounded-full text-sm">
+                                                #{String(index + 1).padStart(2, '0')}
+                                            </div>
+                                        </div>
+
+                                        {/* Info */}
+                                        <div className="p-6">
+                                            <h3 className="text-xl mb-1">{candidate.name}</h3>
+                                            <div className="text-sm text-gray-400 mb-4">Class XI - Science {index + 1}</div>
+
+                                            {/* Vision */}
+                                            {candidate.description && (
+                                                <>
+                                                    <div className="flex items-center gap-2 text-indigo-400 mb-2">
+                                                        <Target className="w-4 h-4" />
+                                                        <span className="text-sm">Visi: {candidate.description.split(' ').slice(0, 3).join(' ')}</span>
+                                                    </div>
+                                                    <p className="text-sm text-gray-400 mb-6 line-clamp-2">
+                                                        {candidate.description}
+                                                    </p>
+                                                </>
+                                            )}
+
+                                            {/* Vote Button */}
+                                            <button
+                                                onClick={() => handleSelectCandidate(candidate.id)}
+                                                className="w-full py-3 rounded-lg transition flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700"
+                                            >
+                                                Pilih Kandidat
+                                                <ArrowRight className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    ) : (
+                        // Results after voting
+                        <div className="grid grid-cols-3 gap-6 mb-8">
+                            {poll.candidates.map((candidate, index) => {
+                                const votes = poll.votes[candidate.id] || 0;
+                                const percentage = getVotePercentage(candidate.id);
+                                const bgColors = ['bg-gray-600', 'bg-orange-400', 'bg-gray-700'];
+                                const bgColor = bgColors[index % bgColors.length];
+
+                                return (
+                                    <div
+                                        key={candidate.id}
+                                        className="bg-[#1f2342] border border-gray-800 rounded-2xl overflow-hidden"
+                                    >
+                                        {/* Photo */}
+                                        <div className={`relative ${bgColor} h-80`}>
+                                            {candidate.photo ? (
+                                                <img
+                                                    src={candidate.photo}
+                                                    alt={candidate.name}
+                                                    className="w-full h-full object-cover"
+                                                />
+                                            ) : (
+                                                <div className="w-full h-full flex items-center justify-center">
+                                                    <Upload className="w-16 h-16 text-white/30" />
+                                                </div>
+                                            )}
+                                            <div className="absolute top-4 right-4 bg-black/70 backdrop-blur-sm px-3 py-1 rounded-full text-sm">
+                                                #{String(index + 1).padStart(2, '0')}
+                                            </div>
+                                        </div>
+
+                                        {/* Info */}
+                                        <div className="p-6">
+                                            <h3 className="text-xl mb-1">{candidate.name}</h3>
+                                            <div className="text-sm text-gray-400 mb-4">Class XI - Science {index + 1}</div>
+
+                                            {/* Results */}
+                                            <div className="mb-4">
+                                                <div className="flex justify-between mb-2">
+                                                    <span className="text-sm text-gray-400">{votes} suara</span>
+                                                    <span className="text-lg text-indigo-400">{percentage}%</span>
+                                                </div>
+                                                <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
+                                                    <div
+                                                        className="bg-gradient-to-r from-indigo-500 to-indigo-600 h-full transition-all duration-500"
+                                                        style={{ width: `${percentage}%` }}
+                                                    ></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Alert Modal */}
+            {showAlert && <AlertModal onClose={() => setShowAlert(false)} />}
+
+            {/* Success Modal */}
+            {showSuccessModal && getSelectedCandidateData() && (
+                <SuccessVoteModal
+                    candidateName={getSelectedCandidateData()!.name}
+                    candidateDescription={getSelectedCandidateData()!.description}
+                    candidatePhoto={getSelectedCandidateData()!.photo}
+                    onClose={() => setShowSuccessModal(false)}
+                />
+            )}
+
+            {/* Confirmation Modal */}
+            {showConfirmModal && getSelectedCandidateData() && (
+                <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-6 z-50">
+                    <div className="bg-[#1a1d35] border border-gray-700 rounded-2xl max-w-md w-full">
+                        {/* Header */}
+                        <div className="flex items-center justify-between p-6 border-b border-gray-700">
+                            <h3 className="text-xl">Konfirmasi Pilihan Anda</h3>
+                            <button
+                                onClick={() => setShowConfirmModal(false)}
+                                className="text-gray-400 hover:text-white transition"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Content */}
+                        <div className="p-6">
+                            {/* Selected Candidate Card */}
+                            <div className="bg-[#0f1123] border border-indigo-500/30 rounded-xl p-4 mb-6">
+                                <div className="flex items-center gap-3 mb-3">
+                                    <div className="text-xs text-indigo-400 uppercase tracking-wide flex items-center gap-2">
+                                        ANDA MEMILIH
+                                        <CheckCircle className="w-4 h-4" />
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-4">
+                                    {getSelectedCandidateData()?.photo ? (
+                                        <img
+                                            src={getSelectedCandidateData()?.photo}
+                                            alt={getSelectedCandidateData()?.name}
+                                            className="w-16 h-16 object-cover rounded-lg flex-shrink-0"
+                                        />
+                                    ) : (
+                                        <div className="w-16 h-16 bg-gray-800 rounded-lg flex-shrink-0 flex items-center justify-center">
+                                            <Upload className="w-6 h-6 text-gray-600" />
+                                        </div>
+                                    )}
+                                    <div>
+                                        <div className="text-lg mb-1">{getSelectedCandidateData()?.name}</div>
+                                        <div className="text-sm text-gray-400">{getSelectedCandidateData()?.description}</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Email Form */}
+                            <form onSubmit={handleVote}>
+                                <div className="mb-4">
+                                    <label className="text-sm text-gray-400 block mb-2">
+                                        Verifikasi Email <span className="text-red-400">(Required)</span>
+                                    </label>
+                                    <div className="relative">
+                                        <Mail className="w-5 h-5 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                                        <input
+                                            type="email"
+                                            value={email}
+                                            onChange={(e) => setEmail(e.target.value)}
+                                            placeholder="nama@email.com"
+                                            className="w-full bg-[#0f1123] border border-gray-700 rounded-lg pl-10 pr-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition"
+                                            required
+                                            autoFocus
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Security Notice */}
+                                <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-lg p-3 mb-6 flex gap-3">
+                                    <Shield className="w-5 h-5 text-indigo-400 flex-shrink-0 mt-0.5" />
+                                    <div className="text-xs text-gray-300">
+                                        <span className="text-indigo-400">Security Check:</span> Only one vote is allowed per verified email address. Ensure your email is correct to receive the validation code.
+                                    </div>
+                                </div>
+
+                                {/* Action Buttons */}
+                                <div className="flex gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowConfirmModal(false)}
+                                        className="flex-1 bg-gray-700 hover:bg-gray-600 py-3 rounded-lg transition"
+                                    >
+                                        Batal
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={!email}
+                                        className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-700 disabled:cursor-not-allowed py-3 rounded-lg transition"
+                                    >
+                                        Kirim Suara
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+export default VotingPage;

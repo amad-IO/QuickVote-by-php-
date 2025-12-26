@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Security Test - QuickVote</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #0f1123;
+      color: #fff;
+    }
+
+    .container {
+      background: #1a1d35;
+      border: 1px solid #2d3155;
+      border-radius: 12px;
+      padding: 30px;
+    }
+
+    h1 {
+      color: #6467f2;
+      margin-bottom: 30px;
+    }
+
+    .test-section {
+      background: #0f1123;
+      padding: 20px;
+      border-radius: 8px;
+      margin: 20px 0;
+      border-left: 4px solid #6467f2;
+    }
+
+    .status {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+      margin-left: 10px;
+    }
+
+    .status.success {
+      background: #059669;
+      color: white;
+    }
+
+    .status.error {
+      background: #dc2626;
+      color: white;
+    }
+
+    .status.warning {
+      background: #f59e0b;
+      color: white;
+    }
+
+    button {
+      background: #6467f2;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      margin: 5px;
+    }
+
+    button:hover {
+      background: #5558d9;
+    }
+
+    button.danger {
+      background: #dc2626;
+    }
+
+    button.danger:hover {
+      background: #b91c1c;
+    }
+
+    pre {
+      background: #000;
+      padding: 15px;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-size: 13px;
+    }
+
+    .info-box {
+      background: #1e293b;
+      padding: 15px;
+      border-radius: 6px;
+      margin: 15px 0;
+      border-left: 3px solid #3b82f6;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>🔐 Security Configuration Test</h1>
+
+    <div class="test-section">
+      <h3>1. Check Current Authentication State</h3>
+      <button onclick="checkAuth()">Check Auth Status</button>
+      <div id="authResult"></div>
+    </div>
+
+    <div class="test-section">
+      <h3>2. Clear All Authentication Data</h3>
+      <p>This will clear token and currentUser from localStorage</p>
+      <button class="danger" onclick="clearAuth()">Clear localStorage</button>
+      <div id="clearResult"></div>
+    </div>
+
+    <div class="test-section">
+      <h3>3. Test Protected Routes</h3>
+      <div class="info-box">
+        <strong>Important:</strong> After clearing localStorage, these links should redirect to login
+      </div>
+      <button onclick="window.location.href='/dashboard/one'">Test /dashboard/one</button>
+      <button onclick="window.location.href='/dashboard/two'">Test /dashboard/two</button>
+      <button onclick="window.location.href='/voting-history'">Test /voting-history</button>
+    </div>
+
+    <div class="test-section">
+      <h3>4. Test Public Routes</h3>
+      <div class="info-box">
+        <strong>Should work:</strong> These should be accessible without login
+      </div>
+      <button onclick="window.location.href='/'">Test Landing Page</button>
+      <button onclick="window.location.href='/login'">Test Login Page</button>
+      <button onclick="window.location.href='/vote/1'">Test Public Vote</button>
+    </div>
+
+    <div class="test-section">
+      <h3>5. Manual Verification</h3>
+      <pre id="instructions">
+1. Clear localStorage using button above
+2. Try to access: http://localhost:5173/dashboard/two
+3. You SHOULD be redirected to: /login?returnUrl=%2Fdashboard%2Ftwo
+4. If you can still access dashboard, check browser console for errors
+            </pre>
+    </div>
+  </div>
+
+  <script>
+    function checkAuth() {
+      const token = localStorage.getItem('token');
+      const user = localStorage.getItem('currentUser');
+      const resultDiv = document.getElementById('authResult');
+
+      let html = '<div style="margin-top: 15px;">';
+
+      if (token) {
+        html += `<p><strong>Token:</strong> <span class="status error">EXISTS</span></p>`;
+        html += `<pre>${token.substring(0, 50)}...</pre>`;
+      } else {
+        html += `<p><strong>Token:</strong> <span class="status success">NOT FOUND</span></p>`;
+      }
+
+      if (user) {
+        html += `<p><strong>User:</strong> <span class="status error">EXISTS</span></p>`;
+        try {
+          const userData = JSON.parse(user);
+          html += `<pre>${JSON.stringify(userData, null, 2)}</pre>`;
+        } catch (e) {
+          html += `<pre>${user}</pre>`;
+        }
+      } else {
+        html += `<p><strong>User:</strong> <span class="status success">NOT FOUND</span></p>`;
+      }
+
+      if (!token && !user) {
+        html += '<div class="info-box" style="background: #059669; color: white; margin-top: 15px;">';
+        html += '<strong>✅ Perfect!</strong> No authentication data found. Protected routes should redirect to login.';
+        html += '</div>';
+      } else {
+        html += '<div class="info-box" style="background: #dc2626; color: white; margin-top: 15px;">';
+        html += '<strong>❌ Problem Found!</strong> Authentication data exists. This is why you can still access protected routes!';
+        html += '<br><br><strong>Solution:</strong> Click "Clear localStorage" button above.';
+        html += '</div>';
+      }
+
+      html += '</div>';
+      resultDiv.innerHTML = html;
+    }
+
+    function clearAuth() {
+      localStorage.removeItem('token');
+      localStorage.removeItem('currentUser');
+
+      const resultDiv = document.getElementById('clearResult');
+      resultDiv.innerHTML = `
+                <div class="info-box" style="background: #059669; color: white; margin-top: 15px;">
+                    <strong>✅ Cleared!</strong><br>
+                    Token and user data have been removed from localStorage.<br><br>
+                    <strong>Next step:</strong> Try accessing /dashboard/two - you should be redirected to login.
+                </div>
+            `;
+
+      // Auto-check auth status after clear
+      setTimeout(checkAuth, 500);
+    }
+
+    // Auto-check on page load
+    window.addEventListener('load', checkAuth);
+  </script>
+</body>
+
+</html>

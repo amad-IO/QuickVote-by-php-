@@ -1,0 +1,57 @@
+# Laravel Backend
+/backend/vendor/
+/backend/node_modules/
+/backend/.env
+/backend/.env.backup
+/backend/storage/*.key
+/backend/storage/app/*
+!/backend/storage/app/.gitignore
+/backend/storage/framework/cache/*
+!/backend/storage/framework/cache/.gitignore
+/backend/storage/framework/sessions/*
+!/backend/storage/framework/sessions/.gitignore
+/backend/storage/framework/testing/*
+!/backend/storage/framework/testing/.gitignore
+/backend/storage/framework/views/*
+!/backend/storage/framework/views/.gitignore
+/backend/storage/logs/*
+!/backend/storage/logs/.gitignore
+/backend/bootstrap/cache/*
+!/backend/bootstrap/cache/.gitignore
+
+# Frontend React
+/frontend/node_modules/
+/frontend/dist/
+/frontend/build/
+/frontend/.env
+/frontend/.env.local
+/frontend/.env.production.local
+
+# IDE & Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Temporary files
+*.tmp
+*.temp
+
+# Docker volumes (jangan upload data)
+mysql_data/
+redis_data/
+
+# Uploaded images from this session
+uploaded_image_*.png

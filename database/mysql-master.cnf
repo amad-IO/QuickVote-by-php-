@@ -1,0 +1,38 @@
+# MySQL Master Configuration
+# Optimized for write operations and replication
+
+[mysqld]
+# Server ID (unique for each server)
+server-id = 1
+
+# Binary logging for replication
+log-bin = mysql-bin
+binlog_format = ROW
+binlog_do_db = quickvote
+expire_logs_days = 7
+max_binlog_size = 100M
+
+# Performance optimizations
+innodb_buffer_pool_size = 2G
+innodb_log_file_size = 512M
+innodb_flush_log_at_trx_commit = 1
+innodb_flush_method = O_DIRECT
+
+# Connection settings
+max_connections = 500
+max_connect_errors = 100000
+
+# Query cache (disabled in MySQL 8.0+, using application cache instead)
+# query_cache_type = 0
+
+# Character set
+character-set-server = utf8mb4
+collation-server = utf8mb4_unicode_ci
+
+# Slow query log
+slow_query_log = 1
+slow_query_log_file = /var/lib/mysql/slow-query.log
+long_query_time = 2
+
+# General log (disable in production for performance)
+general_log = 0
