@@ -1,0 +1,292 @@
+================================================================================
+PANDUAN HAPUS WEB APP LAMA - UNTUK 4 DEBIAN NODES
+================================================================================
+
+Dokumen ini berisi command untuk menghapus aplikasi Docker lama dari praktik
+kemarin sebelum deploy QuickVote yang baru.
+
+Dibuat: 26 Desember 2025
+
+
+================================================================================
+STEP 1: CHECK APA YANG SEDANG RUNNING
+================================================================================
+
+Jalankan command ini di SALAH SATU NODE saja (misalnya node pertama - port 2221):
+
+# Check Docker Swarm status
+docker info | grep Swarm
+
+# Check stack yang running
+docker stack ls
+
+# Check services yang running
+docker service ls
+
+# Check containers yang running
+docker ps
+
+================================================================================
+HASIL YANG MUNGKIN MUNCUL:
+================================================================================
+
+Kalau ada stack lama dari praktik, Anda akan lihat:
+
+NAME                SERVICES    ORCHESTRATOR
+myapp               3           Swarm
+compose             3           Swarm
+
+Atau services seperti:
+ID            NAME                MODE        REPLICAS
+xxx           myapp_backend       replicated  1/1
+xxx           myapp_frontend      replicated  1/1
+xxx           myapp_database      replicated  1/1
+
+
+================================================================================
+STEP 2: HAPUS STACK LAMA (DI MANAGER NODE SAJA!)
+================================================================================
+
+PENTING: Command ini HANYA dijalankan di MANAGER NODE (biasanya node pertama)!
+JANGAN jalankan di semua 4 nodes!
+
+# Kalau stack namanya "myapp"
+docker stack rm myapp
+
+# Kalau stack namanya "compose"
+docker stack rm compose
+
+# Kalau ada lebih dari 1 stack, hapus semua
+docker stack rm myapp compose
+
+# Tunggu sampai selesai (bisa 30 detik - 1 menit)
+# Check lagi apakah sudah bersih
+docker stack ls
+docker service ls
+
+Kalau output kosong atau "Nothing found" = SUDAH BERSIH! ✓
+
+
+================================================================================
+STEP 3: HAPUS CONTAINER STANDALONE (Kalau Ada)
+================================================================================
+
+Kalau ada container yang tidak pakai Swarm (standalone), hapus manual.
+
+# Jalankan di SETIAP NODE (4 nodes):
+
+# 1. Stop semua container
+docker stop $(docker ps -aq)
+
+# 2. Remove semua container
+docker rm $(docker ps -aq)
+
+# 3. Verify sudah bersih
+docker ps -a
+
+
+================================================================================
+STEP 4: CLEANUP DOCKER RESOURCES
+================================================================================
+
+Jalankan di SETIAP NODE (4 nodes) untuk bersihkan:
+- Unused images
+- Unused volumes
+- Unused networks
+- Build cache
+
+# Cleanup otomatis (RECOMMENDED)
+docker system prune -af --volumes
+
+PERHATIAN: Command ini akan hapus:
+✓ Semua stopped containers
+✓ Semua unused networks
+✓ Semua unused images
+✓ Semua unused volumes
+✓ Build cache
+
+Command ini AMAN karena:
+- Tidak hapus Swarm configuration
+- Tidak hapus node labels
+- Hanya hapus yang tidak dipakai
+
+Setelah command ini selesai, disk space akan banyak kembali!
+
+
+================================================================================
+STEP 5: VERIFY CLEANUP BERHASIL
+================================================================================
+
+Jalankan di MANAGER NODE:
+
+# 1. Check swarm masih aktif
+docker info | grep Swarm
+# Output harus: Swarm: active ✓
+
+# 2. Check nodes masih terhubung
+docker node ls
+# Output harus menunjukkan 4 nodes ✓
+
+# 3. Verify tidak ada stack
+docker stack ls
+# Output harus kosong ✓
+
+# 4. Verify tidak ada service
+docker service ls
+# Output harus kosong ✓
+
+Jalankan di SEMUA NODE (4 nodes):
+
+# 5. Verify tidak ada container running
+docker ps
+# Output harus kosong ✓
+
+# 6. Check disk space
+df -h
+# Seharusnya lebih banyak space tersedia ✓
+
+
+================================================================================
+STEP 6: OPTIONAL - RESET NODE LABELS (Kalau Perlu)
+================================================================================
+
+Kalau node labels dari praktik lama conflict dengan QuickVote,
+hapus labels lama dan set yang baru.
+
+Di MANAGER NODE:
+
+# Check labels yang ada
+docker node inspect node1 --format '{{.Spec.Labels}}'
+docker node inspect node2 --format '{{.Spec.Labels}}'
+docker node inspect node3 --format '{{.Spec.Labels}}'
+docker node inspect node4 --format '{{.Spec.Labels}}'
+
+# Hapus label lama (contoh)
+docker node update --label-rm old_label node1
+
+# Set label baru untuk QuickVote (sesuai deployment plan)
+docker node update --label-add redis=cache debian1
+docker node update --label-add redis=queue debian1
+docker node update --label-add database=master debian4
+docker node update --label-add database=replica debian2
+docker node update --label-add database=replica debian3
+
+
+================================================================================
+COMMAND LENGKAP - COPY PASTE READY
+================================================================================
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ DI MANAGER NODE (Node 1 - Port 2221)                                   │
+└─────────────────────────────────────────────────────────────────────────┘
+
+# 1. Check apa yang running
+docker stack ls
+docker service ls
+
+# 2. Hapus semua stack lama (ganti 'myapp' dengan nama stack Anda)
+docker stack rm $(docker stack ls --format "{{.Name}}")
+
+# 3. Tunggu 30 detik
+sleep 30
+
+# 4. Verify bersih
+docker stack ls
+docker service ls
+
+# 5. Cleanup
+docker system prune -af --volumes
+
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ DI SEMUA WORKER NODES (Node 2, 3, 4 - Port 2222, 2223, 2224)          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+# Di masing-masing node, jalankan:
+
+# 1. Stop & remove containers (kalau ada)
+docker stop $(docker ps -aq) 2>/dev/null || true
+docker rm $(docker ps -aq) 2>/dev/null || true
+
+# 2. Cleanup
+docker system prune -af --volumes
+
+# 3. Verify bersih
+docker ps -a
+
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ FINAL VERIFICATION (DI MANAGER NODE)                                    │
+└─────────────────────────────────────────────────────────────────────────┘
+
+# Check Swarm masih aktif
+docker info | grep Swarm
+
+# Check 4 nodes masih terhubung
+docker node ls
+
+# Output harus:
+# ID           HOSTNAME   STATUS  AVAILABILITY  MANAGER STATUS
+# xxxxx *      debian1    Ready   Active        Leader
+# xxxxx        debian2    Ready   Active
+# xxxxx        debian3    Ready   Active
+# xxxxx        debian4    Ready   Active
+
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+Q: "Error: This node is not a swarm manager"
+A: Anda menjalankan command di worker node. Command docker stack/service
+   hanya bisa di manager node (node pertama).
+
+Q: "Cannot remove service xxx: service is being removed"
+A: Tunggu sebentar (30 detik), Docker sedang proses removal.
+
+Q: "Cannot connect to the Docker daemon"
+A: Docker service belum running. Jalankan: sudo systemctl start docker
+
+Q: "Permission denied"
+A: Tambahkan 'sudo' di depan command atau pastikan user dalam docker group.
+
+Q: "Network xxx has active endpoints"
+A: Ada container/service yang masih pakai network. Pastikan semua stack
+   sudah di-remove dengan: docker stack ls
+
+
+================================================================================
+SETELAH CLEANUP SELESAI
+================================================================================
+
+Nodes Anda sekarang BERSIH dan SIAP untuk deploy QuickVote!
+
+Next steps:
+1. Clone QuickVote dari GitHub
+2. Setup node labels
+3. Deploy dengan ./deploy.sh
+
+Lihat DEPLOYMENT.md untuk panduan lengkap deployment QuickVote.
+
+
+================================================================================
+CHECKLIST CLEANUP
+================================================================================
+
+Di Manager Node:
+□ docker stack ls → output kosong
+□ docker service ls → output kosong
+□ docker system prune -af --volumes → selesai
+□ docker info | grep Swarm → Swarm: active
+□ docker node ls → 4 nodes Ready
+
+Di Semua Nodes (2, 3, 4):
+□ docker ps -a → output kosong
+□ docker system prune -af --volumes → selesai
+
+Kalau semua checklist ✓, nodes siap untuk deployment baru!
+
+
+================================================================================
+END OF CLEANUP GUIDE
+================================================================================
