@@ -9,7 +9,7 @@ services:
   # NGINX LOAD BALANCER
   # ========================================
   nginx:
-    image: quickvote/nginx:latest
+    image: 192.168.56.101:5000/quickvote/nginx:latest
     build:
       context: ./nginx
       dockerfile: Dockerfile
@@ -21,14 +21,14 @@ services:
       replicas: 1
       placement:
         constraints:
-          - node.role == manager
+          - node.hostname == Debian1
       resources:
         limits:
-          cpus: '1'
-          memory: 512M
-        reservations:
-          cpus: '0.5'
+          cpus: '0.25'
           memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
       restart_policy:
         condition: on-failure
         delay: 5s
@@ -47,16 +47,78 @@ services:
   # FRONTEND (REACT + NGINX)
   # ========================================
   frontend:
-    image: quickvote/frontend:latest
+    image: 192.168.56.101:5000/quickvote/frontend:latest
     build:
       context: ./frontend
       dockerfile: Dockerfile.prod
     networks:
       - frontend_net
     deploy:
-      replicas: 3
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == Debian1
       update_config:
         parallelism: 1
+        delay: 10s
+        order: start-first
+      rollback_config:
+        parallelism: 1
+        delay: 5s
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    healthcheck:
+      test: [ "CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+
+  # ========================================
+  # BACKEND (LARAVEL API)
+  # ========================================
+  backend:
+    image: 192.168.56.101:5000/quickvote/backend:latest
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    networks:
+      - frontend_net
+      - backend_net
+      - cache_net
+      - db_net
+    environment:
+      - APP_ENV=production
+      - APP_DEBUG=false
+      - DB_CONNECTION=mysql
+      - DB_HOST=quickvote_mysql
+      - DB_PORT=3306
+      - DB_DATABASE=quickvote
+      - DB_USERNAME=quickvote
+      - DB_PASSWORD=secret
+      # - DB_READ_HOST=mysql-replica-1,mysql-replica-2
+      - REDIS_HOST=redis-cache
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+      - QUEUE_CONNECTION=redis
+      - CACHE_DRIVER=redis
+      - SESSION_DRIVER=redis
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == Debian1
+      update_config:
+        parallelism: 2
         delay: 10s
         order: start-first
       rollback_config:
@@ -74,69 +136,13 @@ services:
         delay: 5s
         max_attempts: 3
     healthcheck:
-      test: [ "CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health" ]
-      interval: 10s
-      timeout: 3s
-      retries: 3
-      start_period: 15s
-
-  # ========================================
-  # BACKEND (LARAVEL API)
-  # ========================================
-  backend:
-    image: quickvote/backend:latest
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.prod
-    networks:
-      - frontend_net
-      - backend_net
-      - cache_net
-      - db_net
-    environment:
-      - APP_ENV=production
-      - APP_DEBUG=false
-      - DB_CONNECTION=mysql
-      - DB_HOST=mysql-master
-      - DB_PORT=3306
-      - DB_DATABASE=quickvote
-      - DB_USERNAME=quickvote
-      - DB_PASSWORD=secret
-      - DB_READ_HOST=mysql-replica-1,mysql-replica-2
-      - REDIS_HOST=redis-cache
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=
-      - QUEUE_CONNECTION=redis
-      - CACHE_DRIVER=redis
-      - SESSION_DRIVER=redis
-    deploy:
-      replicas: 4
-      update_config:
-        parallelism: 2
-        delay: 10s
-        order: start-first
-      rollback_config:
-        parallelism: 1
-        delay: 5s
-      resources:
-        limits:
-          cpus: '1'
-          memory: 1G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 3
-    healthcheck:
       test: [ "CMD", "php", "artisan", "db:show" ]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 30s
     depends_on:
-      - mysql-master
+      - quickvote_mysql
       - redis-cache
       - redis-queue
 
@@ -144,7 +150,7 @@ services:
   # QUEUE WORKERS (ASYNC VOTE PROCESSING)
   # ========================================
   queue-worker:
-    image: quickvote/queue-worker:latest
+    image: 192.168.56.101:5000/quickvote/queue-worker:latest
     build:
       context: ./queue-worker
       dockerfile: Dockerfile
@@ -156,7 +162,7 @@ services:
       - APP_ENV=production
       - APP_DEBUG=false
       - DB_CONNECTION=mysql
-      - DB_HOST=mysql-master
+      - DB_HOST=quickvote_mysql
       - DB_PORT=3306
       - DB_DATABASE=quickvote
       - DB_USERNAME=quickvote
@@ -165,7 +171,7 @@ services:
       - REDIS_PORT=6379
       - QUEUE_CONNECTION=redis
     deploy:
-      replicas: 2
+      replicas: 0 # Disabled for lightweight deployment
       update_config:
         parallelism: 1
         delay: 10s
@@ -187,7 +193,7 @@ services:
       retries: 3
       start_period: 40s
     depends_on:
-      - mysql-master
+      - quickvote_mysql
       - redis-queue
 
   # ========================================
@@ -195,23 +201,23 @@ services:
   # ========================================
   redis-cache:
     image: redis:7-alpine
-    command: redis-server /usr/local/etc/redis/redis.conf
-    volumes:
-      - ./redis/redis-cache.conf:/usr/local/etc/redis/redis.conf:ro
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    # volumes:
+    # - ./redis/redis-cache.conf:/usr/local/etc/redis/redis.conf:ro
     networks:
       - cache_net
     deploy:
       replicas: 1
       placement:
         constraints:
-          - node.labels.redis == cache
+          - node.hostname == Debian1
       resources:
         limits:
-          cpus: '1'
-          memory: 2G
+          cpus: '0.25'
+          memory: 512M
         reservations:
-          cpus: '0.5'
-          memory: 1G
+          cpus: '0.1'
+          memory: 256M
       restart_policy:
         condition: on-failure
         delay: 5s
@@ -227,17 +233,17 @@ services:
   # ========================================
   redis-queue:
     image: redis:7-alpine
-    command: redis-server /usr/local/etc/redis/redis.conf
+    command: redis-server --save 60 1 --appendonly yes
     volumes:
-      - ./redis/redis-queue.conf:/usr/local/etc/redis/redis.conf:ro
+      # - ./redis/redis-queue.conf:/usr/local/etc/redis/redis.conf:ro
       - redis_queue_data:/data
     networks:
       - cache_net
     deploy:
-      replicas: 1
-      placement:
-        constraints:
-          - node.labels.redis == queue
+      replicas: 0 # Disabled - using redis-cache for both cache and queue
+      # placement:
+      # constraints:
+      # - node.labels.redis == queue
       resources:
         limits:
           cpus: '1'
@@ -262,8 +268,8 @@ services:
     image: mysql:8.0
     command: --default-authentication-plugin=mysql_native_password
     volumes:
-      - ./database/mysql-master.cnf:/etc/mysql/conf.d/custom.cnf:ro
-      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # - ./database/mysql-master.cnf:/etc/mysql/conf.d/custom.cnf:ro
+      # - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - mysql_master_data:/var/lib/mysql
     environment:
       MYSQL_ROOT_PASSWORD: secret
@@ -273,10 +279,10 @@ services:
     networks:
       - db_net
     deploy:
-      replicas: 1
-      placement:
-        constraints:
-          - node.labels.database == master
+      replicas: 0 # Disabled - using quickvote_mysql instead
+      # placement:
+      # constraints:
+      # - node.labels.database == master
       resources:
         limits:
           cpus: '2'
@@ -302,7 +308,7 @@ services:
     image: mysql:8.0
     command: --default-authentication-plugin=mysql_native_password
     volumes:
-      - ./database/mysql-replica.cnf:/etc/mysql/conf.d/custom.cnf:ro
+      # - ./database/mysql-replica.cnf:/etc/mysql/conf.d/custom.cnf:ro
       - mysql_replica1_data:/var/lib/mysql
     environment:
       MYSQL_ROOT_PASSWORD: secret
@@ -312,10 +318,10 @@ services:
     networks:
       - db_net
     deploy:
-      replicas: 1
-      placement:
-        constraints:
-          - node.labels.database == replica
+      replicas: 0 # Disabled - using quickvote_mysql instead
+      # placement:
+      # constraints:
+      # - node.labels.database == replica
       resources:
         limits:
           cpus: '1'
@@ -343,7 +349,7 @@ services:
     image: mysql:8.0
     command: --default-authentication-plugin=mysql_native_password
     volumes:
-      - ./database/mysql-replica.cnf:/etc/mysql/conf.d/custom.cnf:ro
+      # - ./database/mysql-replica.cnf:/etc/mysql/conf.d/custom.cnf:ro
       - mysql_replica2_data:/var/lib/mysql
     environment:
       MYSQL_ROOT_PASSWORD: secret
@@ -354,9 +360,9 @@ services:
       - db_net
     deploy:
       replicas: 1
-      placement:
-        constraints:
-          - node.labels.database == replica
+      # placement:
+      # constraints:
+      # - node.labels.database == replica
       resources:
         limits:
           cpus: '1'
