@@ -1,39 +1,8 @@
-version: '3.8'
-
 services:
-  # Backend Laravel API
-  backend:
-    build: ./backend
-    container_name: quickvote_backend
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./backend:/var/www
-    environment:
-      - APP_ENV=local
-      - APP_DEBUG=true
-      - DB_CONNECTION=mysql
-      - DB_HOST=database
-      - DB_PORT=3306
-      - DB_DATABASE=quickvote
-      - DB_USERNAME=root
-      - DB_PASSWORD=secret
-      - SANCTUM_STATEFUL_DOMAINS=localhost:3000
-    depends_on:
-      - database
-    networks:
-      - quickvote_network
-    command: >
-      sh -c "php artisan migrate --force &&
-             php artisan db:seed --force &&
-             php artisan serve --host=0.0.0.0 --port=8000"
-
-  # MySQL Database
-  database:
+  mysql:
     image: mysql:8.0
-    container_name: quickvote_db
-    ports:
-      - "3306:3306"
+    container_name: quickvote_mysql
+    command: --default-authentication-plugin=mysql_native_password
     environment:
       MYSQL_ROOT_PASSWORD: secret
       MYSQL_DATABASE: quickvote
@@ -41,32 +10,90 @@ services:
       MYSQL_PASSWORD: secret
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - quickvote_network
+    restart: always
     healthcheck:
-      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
-      timeout: 20s
-      retries: 10
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-psecret" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
-  # Frontend React
-  frontend:
-    build: ./frontend
-    container_name: quickvote_frontend
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
+  redis:
+    image: redis:7-alpine
+    container_name: quickvote_redis
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
     networks:
       - quickvote_network
+    restart: always
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    environment:
+      - APP_ENV=production
+      - APP_DEBUG=false
+      - DB_CONNECTION=mysql
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_DATABASE=quickvote
+      - DB_USERNAME=quickvote
+      - DB_PASSWORD=secret
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CACHE_DRIVER=redis
+      - SESSION_DRIVER=redis
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - quickvote_network
+    restart: always
+    healthcheck:
+      test: [ "CMD", "php", "artisan", "tinker", "--execute=exit(0);" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    networks:
+      - quickvote_network
+    restart: always
+
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
     depends_on:
       - backend
-
-volumes:
-  mysql_data:
-    driver: local
+      - frontend
+    networks:
+      - quickvote_network
+    restart: always
+    healthcheck:
+      test: [ "CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
 networks:
   quickvote_network:
     driver: bridge
+
+volumes:
+  mysql_data:
